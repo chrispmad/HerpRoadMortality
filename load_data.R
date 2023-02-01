@@ -22,6 +22,9 @@ flnrord_regs = bcmaps::nr_regions()
 # iii. ENV regions.
 bcmaps::nr_districts() %>% pull(ORG_UNIT_NAME)
 
+# iv.
+
+
 # Occurrence data
 # i. KMZ / KML / GDB files from Leigh Anne.
 occ_data_zipped = list.files('data/OccurrenceData/',full.names = T)
