@@ -77,13 +77,17 @@ write_sf(herp_mortality_gdb, 'RoadMortalityWebapp/www/herp_mortality_data.gpkg')
 
 morts = read_sf('RoadMortalityWebapp/www/herp_mortality_data.gpkg')
 
-# 2. iNaturalist
+# 2. FrogWatch
 
-# 3. FrogWatch
+# 3. SPI
+bcdata_list[str_detect(bcdata_list,'incidental')]
 
-# 4. SPI
 
-# 5. Regional Bios etc.
+spi_test = bcdc_query_geodata('wildlife-species-inventory-incidental-observations-non-secured') %>%
+  filter(grep(OBSERVATION_COMMENTS,"[C,c]arcass")) %>%
+  collect()
+
+# 4. Regional Bios etc.
 
 # Spatial files from BCG Warehouse and simplify the geometries before we visualize.
 bcdata_list = bcdc_list()
@@ -148,4 +152,21 @@ ggplot() + geom_sf(data = roads %>%
   geom_sf(data = morts %>% filter(INCIDENTAL == '58234'))
 
 ggplot() + geom_sf(data = roads)
+
+# How about getting ALL roads that match some criteria?
+all_roads_fourlane = bcdc_query_geodata('digital-road-atlas-dra-master-partially-attributed-roads') %>%
+  filter(NUMBER_OF_LANES >= 4) %>%
+  filter(ROAD_SURFACE %in% c("paved","rough")) %>%
+  filter(ROAD_CLASS %in% c("local","highway","arterial","yield","collector","freeway")) %>%
+  collect() %>%
+  st_transform(crs = 4326)
+
+write_sf(all_roads_fourlane, 'RoadMortalityWebapp/www/roads_4lanes.gpkg')
+
+all_roads_two_or_more_lane = bcdc_query_geodata('digital-road-atlas-dra-master-partially-attributed-roads') %>%
+  filter(NUMBER_OF_LANES == 2) %>%
+  filter(ROAD_CLASS %in% c("local")) %>%
+  collect() %>%
+  st_transform(crs = 4326)
+
 # iv. Hydrology layer (creek, stream, river, wetlands (I think the new wetland project is developing this layer…))

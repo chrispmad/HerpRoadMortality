@@ -14,46 +14,54 @@ ui <- bs4Dash::bs4DashPage(
     title = div(
       h4(
         HTML('Herpetofauna Road Mortality Spatial Tool')
-        ),
+      ),
       style = 'text-align:center;'
-      )
+    )
   ),
   sidebar = dashboardSidebar(
     collapsed = F,
     width = '30%',
-    h3("Filters"),
-    uiOutput('group_sel_UI'),
-    checkboxInput(inputId = 'want_species_sel_UI',
-                  label = "Enable Species Filter",
-                  value = F),
-    uiOutput('spec_sel_UI'),
-    selectizeInput(
-      inputId = 'choose_spatial_containers',
-      label = 'Select Spatial Divisions',
-      choices = c('Natural Resource Regions',
-                  'Natural Resource Districts',
-                  'Ecoprovinces',
-                  'Ecoregions',
-                  'Ecosections'),
-      selected = 'Natural Resource Regions'
+    # h3("Filters"),
+    fluidRow(
+      column(width = 6,
+             uiOutput('group_sel_UI'),
+      ),
+      column(width = 6,
+             checkboxInput(inputId = 'want_species_sel_UI',
+                           label = "Enable Species Filter",
+                           value = F),
+             uiOutput('spec_sel_UI')
+      )
     ),
-    h5("Click Map to Select Shape",style = 'text-align:center;'),
-    div(textOutput('shape_selected'), style = 'text-align:center;'),
-    div(
+    # h5("Click Map to Select Shape",style = 'text-align:center;'),
+    # div(textOutput('shape_selected'), style = 'text-align:center;'),
+    column(
+      width = 8, offset = 2,
+      selectizeInput(
+        inputId = 'choose_spatial_containers',
+        label = 'Select Spatial Divisions',
+        choices = c('Natural Resource Regions',
+                    'Natural Resource Districts',
+                    'Ecoprovinces',
+                    'Ecoregions',
+                    'Ecosections'),
+        selected = 'Natural Resource Regions'
+      ),
       shiny::actionButton(inputId = 'reset_sel_button',
-                        label = 'Reset Shape Selection'),
-      style = 'margin-left:75px;'
+                          label = 'Reset Area Selection',
+                          width = '100%')
     ),
-    h3("Summaries"),
+    # h3("Summaries"),
     fluidRow(
       column(width = 6,
              valueBoxOutput('total_records',
                             width = 12)
-             ),
+      ),
       column(width = 6,
              valueBoxOutput('number_dist_species',
                             width = 12)
-             )
+      ),
+      style = 'font-weight: 700;font-size: 24px'
     ),
     plotOutput('data_time_hist', height = '250px')
   ),
@@ -128,7 +136,7 @@ server <- function(input, output) {
   # i.
   output$total_records = renderValueBox({
     valueBox(value = nrow(rmdat_f()),
-             subtitle = 'Total Records',
+             subtitle = 'Recorded Mortality Events',
              width = 12,
              col = 'success',
              gradient = F)
@@ -137,10 +145,10 @@ server <- function(input, output) {
   # ii.
   output$number_dist_species = renderValueBox({
     valueBox(value = length(unique(rmdat_f()$SPECIES_EN)),
-             subtitle = 'Distinct Species',
+             subtitle = 'Distinct Species Killed',
              width = 12,
              col = 'warning')
-    })
+  })
 
   # iii. Histogram of # records by year
   output$data_time_hist = renderPlot({
@@ -245,45 +253,23 @@ server <- function(input, output) {
       # No selection? Just make a fake polygon placeholder
       # so leaflet can still render
       st_as_sf(data.frame(lat = c(49,49.1,49),
-                           lon = c(-130,-130.1,-130.2)),
+                          lon = c(-130,-130.1,-130.2)),
                coords = c("lon","lat"), crs = 4326) %>%
         summarise(geometry = st_combine(geometry)) %>%
         st_cast("POLYGON") %>%
         mutate(highlightcolour = 'transparent',
                shape_name = "")
-      )
+    )
     }
     if(click_shape() != 'Province'){
       return(map_shapes() %>%
-      filter(shape_name %in% click_shape()) %>%
-      mutate(highlightcolour = 'yellow')
+               filter(shape_name %in% click_shape()) %>%
+               mutate(highlightcolour = 'yellow')
       )
     }
   })
 
   # Using selected shape to query roads from road atlas... experimental. Might take too long.
-  roads_in_shape = reactive({
-    data = tryCatch(
-      expr = bcdc_query_geodata('digital-road-atlas-dra-master-partially-attributed-roads') %>%
-        filter(NUMBER_OF_LANES >= 4) %>%
-        filter(ROAD_SURFACE %in% c("paved","rough")) %>%
-        # filter(ROAD_CLASS %in% c("local","highway","arterial","yield","collector","freeway")) %>%
-        filter(INTERSECTS(selected_shape() %>% st_transform(crs = 3005))) %>%
-        collect() %>%
-        st_transform(crs = 4326) %>%
-        dplyr::select(DIGITAL_ROAD_ATLAS_LINE_ID, FEATURE_TYPE, SEGMENT_LENGTH_2D, ROAD_SURFACE, ROAD_CLASS, DATA_CAPTURE_DATE) %>%
-        setNames(snakecase::to_snake_case(names(.))) %>%
-        mutate(my_col = 'darkred'),
-      error = function(e) {
-        data.frame(lat = c(49,49.1), lon = c(-131,-131.1)) %>%
-          st_as_sf(coords = c('lon','lat'), crs = 4326) %>%
-          summarise(geometry = st_combine(geometry)) %>%
-          st_cast("LINESTRING") %>%
-          mutate(my_col = 'transparent')
-      }
-    )
-    return(data)
-      })
 
   # Make leaflet
   output$mortmap = renderLeaflet({
@@ -293,18 +279,18 @@ server <- function(input, output) {
       addProviderTiles(providers$CartoDB,  group = "CartoDB") %>%
       envreportutils::add_bc_home_button() %>%
       envreportutils::set_bc_view(zoom = 5) %>%
-      addLayersControl(baseGroups = c("CartoDB","Streets","Terrain","Satellite"),
+      addLayersControl(baseGroups = c("CartoDB","Streets","Terrain"),
                        overlayGroups = c("MapShapes","Roads","Parks"),
                        options = layersControlOptions(collapsed = F),
                        position = 'bottomright')
-      # leaflet::hideGroup(group = 'Parks')
+    # leaflet::hideGroup(group = 'Parks')
   })
 
   mypal = colorFactor(palette = 'Set2',
-                domain = rmdat$CLASS_NAME)
+                      domain = rmdat$CLASS_NAME)
 
   output$shape_selected = renderText({
-    paste0("Selected: ",click_shape())
+    paste0("Currently selected: ",click_shape())
   })
 
   observe({
@@ -329,24 +315,20 @@ server <- function(input, output) {
         weight = 2,
         group = 'MapShapes') %>%
       addPolygons(label = ~paste0(park_name,", (",park_type,")"),
-                  # layerId = 'parks'
                   weight = 1,
                   color = 'black',
                   fillColor = 'darkgreen',
                   group = 'Parks',
                   data = parks_f()
       ) %>%
-      addPolylines(color = ~my_col,
-                   weight = 3,
-                   data = roads_in_shape()) %>%
       leaflet::addCircleMarkers(
-                                color = ~mypal(CLASS_NAME),
-                                radius = 3,
-                                weight = 10,
-                                opacity = 0.8,
-                                label = ~paste0(SPECIES_EN, " (",SCIENTIFIC,",",Date,"): ",SIGN_OR__1,", ",OBSERVAT_5),
-                                # layerId = 'markers_test',
-                                data = rmdat_f()) %>%
+        color = ~mypal(CLASS_NAME),
+        radius = 3,
+        weight = 10,
+        opacity = 0.8,
+        label = ~paste0(SPECIES_EN, " (",SCIENTIFIC,",",Date,"): ",SIGN_OR__1,", ",OBSERVAT_5),
+        # layerId = 'markers_test',
+        data = rmdat_f()) %>%
       addPolylines(
         color = 'orange',
         weight = 5,
