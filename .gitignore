@@ -4,5 +4,6 @@
 .Ruserdata
 HerpRoadMortality.Rproj
 /data
-/www
+/RoadMortalityWebapp/www
 /tmp
+doc.kml

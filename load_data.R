@@ -6,7 +6,7 @@ library(bcmaps)
 # Set up directories to store data: /data, /www
 
 if(!dir.exists('data')) dir.create('data')
-if(!dir.exists('www')) dir.create('www')
+if(!dir.exists('RoadMortalityWebapp/www')) dir.create('RoadMortalityWebapp/www')
 
 #############
 # Load data #
@@ -16,16 +16,39 @@ if(!dir.exists('www')) dir.create('www')
 # i. BC
 bc = bcmaps::bc_bound()
 
-# ii. FLNRORD regions
-flnrord_regs = bcmaps::nr_regions()
+# ii. Different regions/districts/boundaries within Province
+bcmaps::nr_regions() %>%
+  st_simplify(dTolerance = 200) %>%
+  rename(shape_name = REGION_NAME) %>%
+  dplyr::select(shape_name) %>%
+  write_sf('RoadMortalityWebapp/www/nr_regions.gpkg')
 
-# iii. ENV regions.
-bcmaps::nr_districts() %>% pull(ORG_UNIT_NAME)
+bcmaps::nr_districts() %>%
+  st_simplify(dTolerance = 200) %>%
+  rename(shape_name = DISTRICT_NAME) %>%
+  dplyr::select(shape_name) %>%
+  write_sf('RoadMortalityWebapp/www/nr_districts.gpkg')
 
-# iv.
+bcmaps::ecoprovinces() %>%
+  st_simplify(dTolerance = 200) %>%
+  rename(shape_name = ECOPROVINCE_NAME) %>%
+  dplyr::select(shape_name) %>%
+  write_sf('RoadMortalityWebapp/www/ecoprovinces.gpkg')
+
+bcmaps::ecoregions() %>%
+  st_simplify(dTolerance = 200) %>%
+  rename(shape_name = ECOREGION_NAME) %>%
+  dplyr::select(shape_name) %>%
+  write_sf('RoadMortalityWebapp/www/ecoregions.gpkg')
+
+bcmaps::ecosections() %>%
+  st_simplify(dTolerance = 200) %>%
+  rename(shape_name = ECOSECTION_NAME) %>%
+  dplyr::select(shape_name) %>%
+  write_sf('RoadMortalityWebapp/www/ecosections.gpkg')
 
 
-# Occurrence data
+# Mortality Events data
 # i. KMZ / KML / GDB files from Leigh Anne.
 occ_data_zipped = list.files('data/OccurrenceData/',full.names = T)
 
@@ -41,17 +64,24 @@ kml_layers = occ_data_zipped[str_detect(occ_data_zipped,'\\.kml')] %>%
   bind_rows()
 # KML layer is just fourth element of KMZ, perfect.
 
-kml_layers %>%
-  mutate(Description = str_replace(Description, 'Locatoin','Location')) %>%
-  write_sf('data/OccurrenceData/cleaned_mortality_data.gpkg')
+kml_layers = kml_layers %>%
+  mutate(Description = str_replace(Description, 'Locatoin','Location'))
 
 herp_mortality_gdb = read_sf('data/OccurrenceData/SpatialFiles_AmphibRepti_mortalities.gdb/')
 # Looks great, lots of info there.
 
-write_sf(herp_mortality_gdb, 'data/OccurrenceData/herp_mortality_data.gpkg')
+write_sf(kml_layers, 'RoadMortalityWebapp/www/KML_roadmort.gpkg')
+write_sf(herp_mortality_gdb, 'RoadMortalityWebapp/www/herp_mortality_data.gpkg')
+
+morts = read_sf('RoadMortalityWebapp/www/herp_mortality_data.gpkg')
 
 # 2. iNaturalist
 
+# 3. FrogWatch
+
+# 4. SPI
+
+# 5. Regional Bios etc.
 
 # Spatial files from BCG Warehouse and simplify the geometries before we visualize.
 bcdata_list = bcdc_list()
@@ -67,8 +97,8 @@ if(!file.exists('data/parks_fullres.gpkg')){
 
 parks_simple = st_simplify(parks, dTolerance = 200)
 ggplot() + geom_sf(data = parks_simple)
-file.remove('data/parks_simplified.gpkg')
-write_sf(parks_simple, 'data/parks_simplified.gpkg')
+file.remove('RoadMortalityWebapp/www/parks_simplified.gpkg')
+write_sf(parks_simple, 'RoadMortalityWebapp/www/parks_simplified.gpkg')
 # ggplot() + geom_sf(data = parks)
 
 # ii. Culverts. Note: Leigh Anne: "I also learned from Karina where the 'best'
@@ -106,6 +136,14 @@ mortality_road_within_100m = herp_mortality_gdb$INCIDENTAL %>%
 all_mort_roads_within_100m = bind_rows(mortality_road_within_100m)
 
 #Write to disk.
-write_sf(all_mort_roads_within_100m,'data/roads_within_100m.gpkg')
+write_sf(all_mort_roads_within_100m,'RoadMortalityWebapp/www/roads_within_100m.gpkg')
 
+roads = read_sf('RoadMortalityWebapp/www/roads_within_100m.gpkg')
+
+ggplot() + geom_sf(data = roads %>%
+  filter(related_mortality == '58234'),
+  aes(col = road_class)) +
+  geom_sf(data = morts %>% filter(INCIDENTAL == '58234'))
+
+ggplot() + geom_sf(data = roads)
 # iv. Hydrology layer (creek, stream, river, wetlands (I think the new wetland project is developing this layer…))
