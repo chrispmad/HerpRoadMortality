@@ -32,12 +32,14 @@ bcmaps::nr_districts() %>%
 bcmaps::ecoprovinces() %>%
   st_simplify(dTolerance = 200) %>%
   rename(shape_name = ECOPROVINCE_NAME) %>%
+  mutate(shape_name = stringr::str_to_title(shape_name)) %>%
   dplyr::select(shape_name) %>%
   write_sf('RoadMortalityWebapp/www/ecoprovinces.gpkg')
 
 bcmaps::ecoregions() %>%
   st_simplify(dTolerance = 200) %>%
   rename(shape_name = ECOREGION_NAME) %>%
+  mutate(shape_name = stringr::str_to_title(shape_name)) %>%
   dplyr::select(shape_name) %>%
   write_sf('RoadMortalityWebapp/www/ecoregions.gpkg')
 
