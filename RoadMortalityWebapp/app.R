@@ -4,6 +4,7 @@ library(leaflet)
 library(sf)
 library(bs4Dash)
 library(bslib)
+library(bcdata)
 library(plotly)
 
 # Define UI for application that draws a histogram
@@ -20,6 +21,7 @@ ui <- bs4Dash::bs4DashPage(
   sidebar = dashboardSidebar(
     collapsed = F,
     width = '30%',
+    h3("Filters"),
     uiOutput('group_sel_UI'),
     checkboxInput(inputId = 'want_species_sel_UI',
                   label = "Enable Species Filter",
@@ -42,6 +44,7 @@ ui <- bs4Dash::bs4DashPage(
                         label = 'Reset Shape Selection'),
       style = 'margin-left:75px;'
     ),
+    h3("Summaries"),
     fluidRow(
       column(width = 6,
              valueBoxOutput('total_records',
@@ -238,7 +241,18 @@ server <- function(input, output) {
 
   # Filtering shape, for highlight in leaflet.
   selected_shape = reactive({
-    if(click_shape() == 'Province') return(map_shapes() %>% mutate(highlightcolour = 'transparent'))
+    if(click_shape() == 'Province'){return(
+      # No selection? Just make a fake polygon placeholder
+      # so leaflet can still render
+      st_as_sf(data.frame(lat = c(49,49.1,49),
+                           lon = c(-130,-130.1,-130.2)),
+               coords = c("lon","lat"), crs = 4326) %>%
+        summarise(geometry = st_combine(geometry)) %>%
+        st_cast("POLYGON") %>%
+        mutate(highlightcolour = 'transparent',
+               shape_name = "")
+      )
+    }
     if(click_shape() != 'Province'){
       return(map_shapes() %>%
       filter(shape_name %in% click_shape()) %>%
@@ -248,6 +262,28 @@ server <- function(input, output) {
   })
 
   # Using selected shape to query roads from road atlas... experimental. Might take too long.
+  roads_in_shape = reactive({
+    data = tryCatch(
+      expr = bcdc_query_geodata('digital-road-atlas-dra-master-partially-attributed-roads') %>%
+        filter(NUMBER_OF_LANES >= 4) %>%
+        filter(ROAD_SURFACE %in% c("paved","rough")) %>%
+        # filter(ROAD_CLASS %in% c("local","highway","arterial","yield","collector","freeway")) %>%
+        filter(INTERSECTS(selected_shape() %>% st_transform(crs = 3005))) %>%
+        collect() %>%
+        st_transform(crs = 4326) %>%
+        dplyr::select(DIGITAL_ROAD_ATLAS_LINE_ID, FEATURE_TYPE, SEGMENT_LENGTH_2D, ROAD_SURFACE, ROAD_CLASS, DATA_CAPTURE_DATE) %>%
+        setNames(snakecase::to_snake_case(names(.))) %>%
+        mutate(my_col = 'darkred'),
+      error = function(e) {
+        data.frame(lat = c(49,49.1), lon = c(-131,-131.1)) %>%
+          st_as_sf(coords = c('lon','lat'), crs = 4326) %>%
+          summarise(geometry = st_combine(geometry)) %>%
+          st_cast("LINESTRING") %>%
+          mutate(my_col = 'transparent')
+      }
+    )
+    return(data)
+      })
 
   # Make leaflet
   output$mortmap = renderLeaflet({
@@ -300,6 +336,9 @@ server <- function(input, output) {
                   group = 'Parks',
                   data = parks_f()
       ) %>%
+      addPolylines(color = ~my_col,
+                   weight = 3,
+                   data = roads_in_shape()) %>%
       leaflet::addCircleMarkers(
                                 color = ~mypal(CLASS_NAME),
                                 radius = 3,
