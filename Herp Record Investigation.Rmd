@@ -1,0 +1,128 @@
+---
+title: "Herp Record Investigations"
+author: "Chris Madsen"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: material
+    highlight: github
+    df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = F,warning=F,echo=F)
+library(rinat)
+library(tidyverse)
+library(sf)
+
+bc = bcmaps::bc_bound()
+```
+
+## Canadian Amphibians & Reptiles on Roads
+
+### Total records in project: 10303 (includes research quality and lesser quality records)
+
+```{r amph_rept_on_roads_inat_project, warning=F,echo=T}
+# Download occurrences from the Road Mortality project on iNat.
+amph_and_reptiles_road_dat = rinat::get_inat_obs_project('94083')
+
+# Localize them to BC.
+bc_bound = bcmaps::bc_bound()
+
+amph_sf = amph_and_reptiles_road_dat %>%
+  filter(!is.na(latitude)) %>%
+  st_as_sf(coords = c("longitude","latitude"), crs = 4326)
+
+amph_bc = amph_sf %>%
+  st_join(bc_bound %>% mutate(is_bc = TRUE) %>% st_transform(crs = 4326)) %>%
+  filter(!is.na(is_bc))
+
+amph_bc = amph_bc |> filter(quality_grade == 'research')
+```
+
+### Total research-grade records in B.C.: `r nrow(amph_bc)`
+
+### Record breakdown by species
+
+```{r}
+amph_bc |> 
+  st_drop_geometry() |> 
+  count(taxon.name,taxon.common_name.name, name = 'Count') |> 
+  dplyr::select(Species = taxon.name, `Common Name` = taxon.common_name.name, Count) |> 
+  add_row(Species = 'All', `Common Name` = 'All', Count = nrow(amph_bc))
+```
+
+## iNaturalist
+
+```{r get_our_species_list}
+# What are our species to search for?
+dat = openxlsx::read.xlsx('Species of Interest.xlsx')
+dat = dat |> arrange(Scientific.Name)
+```
+
+Here we search iNaturalist for each species in the following list (shared with me by Megan Winand): `r paste0(dat$Scientific.Name, collapse = ', ')`. 
+
+We search iNaturalist for records that are:
+
+- Research grade observations
+- Observations with latitude / longitude coordinates
+- Observations within British Columbia
+
+We also search the Global Biodiversity Information Facility to get a sense of the number of records there.
+Note: the GBIF searches include records from all of Canada, as downloading records from GBIF, as opposed to just getting the number of samples by country (which is what we do here), requires an account / possible payment(?)
+ 
+```{r}
+data_table = dat$Scientific.Name %>%
+  map( ~ {
+    # print(paste0('Working on species: ', .x))
+    
+    inat_observations = get_inat_obs(taxon_name = .x, maxresults = 10000, quality = 'research', place_id = 'british-columbia') %>% as_tibble()
+    # print('Got the iNat results')
+    
+    num_inat_records = nrow(inat_observations)
+    
+    licenses_inat = inat_observations %>%
+      count(license, sort = T) %>%
+      mutate(license = replace(license, license == '', 'Unspecified')) %>%
+      pivot_wider(names_from = license, values_from = n, names_prefix = 'inat_')
+    
+    # # report quality
+    # report_quality_inat = inat_observations %>%
+    #   count(quality_grade, sort = T) %>%
+    #   pivot_wider(names_from = quality_grade, values_from = n, names_prefix = 'inat_quality_')
+    
+    num_road_mortality_proj_just_bc = nrow(amph_bc %>%
+                                                filter(taxon.name == .x))
+    
+    # And licensing for this road mortality project points.
+    licenses_rdmort = amph_bc %>%
+      filter(taxon.name == .x) %>%
+      st_drop_geometry() %>%
+      count(license, sort = T) %>%
+      mutate(license = replace(license, license == '' | is.na(license), 'Unspecified')) %>%
+      pivot_wider(names_from = license, values_from = n, names_prefix = 'rdmort_bc_')
+    
+    # How about number of GBIF rows?
+    num_gbif_records = rgbif::occ_count(scientificName = .x, country = 'CA')
+    
+    out = tibble(species = .x,
+                 num_road_mortality_proj_just_bc,
+                 num_inat_records,
+                 num_gbif_records
+                 
+    ) %>%
+      bind_cols(licenses_inat,
+                licenses_rdmort)
+  }) %>%
+  bind_rows()
+
+data_table_formatted = data_table %>%  
+  mutate(num_inat_records = as.character(num_inat_records)) %>%
+  mutate(num_inat_records = replace(num_inat_records, num_inat_records == '10000', '10000+')) %>%
+  mutate(across(-species, \(x) replace_na(x, 0)))
+
+data_table_formatted
+
+openxlsx::write.xlsx(data_table_formatted, 'tmp/number_of_records_and_license_types_iNat_GBIF.xlsx')
+```
+

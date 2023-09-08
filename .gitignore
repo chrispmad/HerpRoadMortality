@@ -8,3 +8,5 @@ HerpRoadMortality.Rproj
 /tmp
 doc.kml
 RoadMortalityWebapp/rsconnect
+*.xlsx
+*.html

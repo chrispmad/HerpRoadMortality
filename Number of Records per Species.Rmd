@@ -1,0 +1,64 @@
+---
+title: "Number of Records per Species"
+author: "Chris Madsen"
+date: "2023-05-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(rinat)
+library(tidyverse)
+library(sf)
+
+# Which are our species?
+dat = read_sf('RoadMortalityWebapp/www/herp_mortality_data.gpkg')
+species = unique(dat$SPECIES_EN)
+```
+
+```{r}
+
+results = tibble(species = species)
+
+for(species in species){
+  print(paste0('Working on species '))
+}
+test = rinat::get_inat_obs('Columbia Spotted Frog', maxresults = 10000)
+
+test = test %>% as.tibble()
+
+test %>% 
+  count(license, sort = T)
+
+amph_and_reptiles_road_dat = rinat::get_inat_obs_project('94083')
+
+bc_bound = bcmaps::bc_bound()
+
+amph_sf = amph_and_reptiles_road_dat %>% 
+  filter(!is.na(latitude)) %>% 
+  st_as_sf(coords = c("longitude","latitude"), crs = 4326)
+
+amph_bc = amph_sf %>% 
+  st_join(bc_bound %>% mutate(is_bc = TRUE) %>% st_transform(crs = 4326)) %>% 
+  filter(!is.na(is_bc))
+
+amph_and_reptiles_road_dat %>% 
+  count(license, sort = T)
+
+amph_and_reptiles_road_dat %>% 
+  count(geoprivacy, sort = T)
+
+amph_and_reptiles_road_dat %>% 
+  count(quality_grade, sort = T)
+
+install.packages('rgbif')
+
+library(rgbif)
+
+rgbif::occ_count(scientificName = 'Rana luteiventris')
+
+gbif_test = occ_download(scientificName = 'Rana luteiventris')
+
+```
+

@@ -100,7 +100,7 @@ server <- function(input, output) {
   rmdat = rmdat %>%
     mutate(Date = as.Date(OBSERVATIO))
 
-  # Render UI elements that depend on columns from the datasets.
+  # Render UI elements that depend on columns from the dataset(s).
   # i.
   species_vector = rmdat %>%
     dplyr::select(SPECIES_EN) %>%
@@ -138,7 +138,7 @@ server <- function(input, output) {
     valueBox(value = nrow(rmdat_f()),
              subtitle = 'Recorded Mortality Events',
              width = 12,
-             col = 'success',
+             color = 'success',
              gradient = F)
   })
 
@@ -147,7 +147,7 @@ server <- function(input, output) {
     valueBox(value = length(unique(rmdat_f()$SPECIES_EN)),
              subtitle = 'Distinct Species Killed',
              width = 12,
-             col = 'warning')
+             color ='warning')
   })
 
   # iii. Histogram of # records by year
@@ -174,21 +174,28 @@ server <- function(input, output) {
   # Select which shapes (e.g. regions/districts) to map
 
   map_shapes = reactive({
-    if(input$choose_spatial_containers == 'Natural Resource Regions'){
-      return(nr_regions)
-    }
-    if(input$choose_spatial_containers == 'Natural Resource Districts'){
-      return(nr_districts)
-    }
-    if(input$choose_spatial_containers == 'Ecoprovinces'){
-      return(ecoprovs)
-    }
-    if(input$choose_spatial_containers == 'Ecoregions'){
-      return(ecoregions)
-    }
-    if(input$choose_spatial_containers == 'Ecosections'){
-      return(ecosects)
-    }
+    switch(input$choose_spatial_containers,
+           `Natural Resource Regions` = nr_regions,
+           `Natural Resource Districts` = nr_districts,
+           `Ecoprovinces` = ecoprovs,
+           `Ecoregions` = ecoregions,
+           `Ecosections` = nr_regions
+           )
+    # if(input$choose_spatial_containers == 'Natural Resource Regions'){
+    #   return(nr_regions)
+    # }
+    # if(input$choose_spatial_containers == 'Natural Resource Districts'){
+    #   return(nr_districts)
+    # }
+    # if(input$choose_spatial_containers == 'Ecoprovinces'){
+    #   return(ecoprovs)
+    # }
+    # if(input$choose_spatial_containers == 'Ecoregions'){
+    #   return(ecoregions)
+    # }
+    # if(input$choose_spatial_containers == 'Ecosections'){
+    #   return(ecosects)
+    # }
   })
 
   # Add functionality to select data points by regions/districts. Either dropdown or click area on map.
@@ -208,13 +215,22 @@ server <- function(input, output) {
     # manual_sidebar_tracker('closed')
   })
 
+
   observeEvent(input$reset_sel_button, {
+    click_shape('Province')
+  })
+
+  # If the spatial divisions are changed after
+  # a shape has been clicked, revert click_shape()
+  # to 'Province'
+  observeEvent(input$choose_spatial_containers, {
     click_shape('Province')
   })
 
   # Reactive version of dataset.
 
   rmdat_f = reactive({
+    req(map_shapes(), click_shape())
     dat_intermediate = rmdat %>%
       filter(CLASS_NAME %in% input$group_selector)
 
@@ -311,7 +327,7 @@ server <- function(input, output) {
         data = map_shapes(),
         layerId = ~shape_name,
         label = ~shape_name,
-        col = 'grey',
+        color = 'grey',
         weight = 2,
         group = 'MapShapes') %>%
       addPolygons(label = ~paste0(park_name,", (",park_type,")"),
