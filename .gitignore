@@ -10,3 +10,5 @@ doc.kml
 RoadMortalityWebapp/rsconnect
 *.xlsx
 *.html
+output/*
+tasks/*
