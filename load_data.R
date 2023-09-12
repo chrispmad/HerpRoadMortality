@@ -93,7 +93,6 @@ sci_names = unique(inat_data$scientific_name)
 inat_data = inat_data |>
   filter(scientific_name %in% sci_names)
 
-
 # Adjust format to match 'herp_mortality_data.gpkg'
 
 # 3. FrogWatch
@@ -232,6 +231,21 @@ all_mort_data = morts_for_join |>
   bind_rows(spi_mort_data_for_join) |>
   bind_rows(inat_data_for_join) |>
   distinct()
+
+# What if we just keep species highlighted in the Species of Interest.xlsx?
+species_of_int = openxlsx::read.xlsx('Species of Interest.xlsx')
+
+all_mort_data |>
+  st_drop_geometry() |>
+  filter(scientific_name %in% species_of_int$Scientific.Name | common_name %in% species_of_int$Common.Name) |>
+  distinct(scientific_name) |>
+  arrange(scientific_name) |>
+  dplyr::pull(scientific_name)
+
+all_mort_data |>
+  st_drop_geometry() |>
+  filter(!(scientific_name %in% species_of_int$Scientific.Name | common_name %in% species_of_int$Common.Name)) |>
+  openxlsx::write.xlsx('output/mort_data_dropped_rows_when_using_species_of_interest_list.xlsx')
 
 write_sf(all_mort_data,
          'RoadMortalityWebapp/www/herp_mortality_data.gpkg')
