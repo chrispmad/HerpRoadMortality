@@ -4,7 +4,8 @@ library(sf)
 
 
 # Download occurrences from the Road Mortality project on iNat.
-amph_and_reptiles_road_dat = rinat::get_inat_obs_project('94083')
+# amph_and_reptiles_road_dat = rinat::get_inat_obs_project('94083', type = 'observations')
+amph_and_reptiles_road_dat = rinat::get_inat_obs(query = 'quality_grade=research&identifications=any&place_id=7085&projects%5B%5D=canadian-amphibians-reptiles-on-roads')
 
 # Localize them to BC.
 bc_bound = bcmaps::bc_bound()

@@ -1,369 +1,164 @@
-library(shiny)
-library(tidyverse)
-library(leaflet)
-library(sf)
-library(bs4Dash)
-library(bslib)
-library(bcdata)
-library(plotly)
 
-# Define UI for application that draws a histogram
-ui <- bs4Dash::bs4DashPage(
-  dark = T,
-  header = bs4Dash::dashboardHeader(
-    title = div(
-      h4(
-        HTML('Herpetofauna Road Mortality Spatial Tool')
-      ),
-      style = 'text-align:center;'
-    )
-  ),
-  sidebar = dashboardSidebar(
-    collapsed = F,
-    width = '30%',
-    # h3("Filters"),
-    fluidRow(
-      column(width = 6,
-             uiOutput('group_sel_UI'),
-      ),
-      column(width = 6,
-             checkboxInput(inputId = 'want_species_sel_UI',
-                           label = "Enable Species Filter",
-                           value = F),
-             uiOutput('spec_sel_UI')
-      )
-    ),
-    # h5("Click Map to Select Shape",style = 'text-align:center;'),
-    # div(textOutput('shape_selected'), style = 'text-align:center;'),
-    column(
-      width = 8, offset = 2,
-      selectizeInput(
-        inputId = 'choose_spatial_containers',
-        label = 'Select Spatial Divisions',
-        choices = c('Natural Resource Regions',
-                    'Natural Resource Districts',
-                    'Ecoprovinces',
-                    'Ecoregions',
-                    'Ecosections'),
-        selected = 'Natural Resource Regions'
-      ),
-      shiny::actionButton(inputId = 'reset_sel_button',
-                          label = 'Reset Area Selection',
-                          width = '100%')
-    ),
-    # h3("Summaries"),
-    fluidRow(
-      column(width = 6,
-             valueBoxOutput('total_records',
-                            width = 12)
-      ),
-      column(width = 6,
-             valueBoxOutput('number_dist_species',
-                            width = 12)
-      ),
-      style = 'font-weight: 700;font-size: 24px'
-    ),
-    plotOutput('data_time_hist', height = '250px')
-  ),
-  body = bs4Dash::dashboardBody(
-    leafletOutput('mortmap',height = '600px')
-  )
-)
+source('utils/UI.R')
 
-# Define server logic required to draw a histogram
-server <- function(input, output) {
-  # Load data.
-  rmdat = read_sf('www/herp_mortality_data.gpkg') %>%
-    st_transform(crs = 4326)
-  kml_rmdat = read_sf('www/KML_roadmort.gpkg') %>%
-    st_transform(crs = 4326)
-  nr_regions = read_sf('www/nr_regions.gpkg') %>%
-    st_transform(crs = 4326)
-  nr_regions = read_sf('www/nr_regions.gpkg') %>%
-    st_transform(crs = 4326)
-  nr_districts = read_sf('www/nr_districts.gpkg') %>%
-    st_transform(crs = 4326)
-  ecoprovs = read_sf('www/ecoprovinces.gpkg') %>%
-    st_transform(crs = 4326)
-  ecosects = read_sf('www/ecosections.gpkg') %>%
-    st_transform(crs = 4326)
-  ecoregions = read_sf('www/ecoregions.gpkg') %>%
-    st_transform(crs = 4326)
-  parks = read_sf('www/parks_simplified.gpkg') %>%
-    st_transform(crs = 4326) %>%
-    rename(park_name = PROTECTED_AREA_NAME,
-           park_type = PROTECTED_AREA_TYPE)
-  roads_in_100m = read_sf('www/roads_within_100m.gpkg') %>%
-    st_transform(crs = 4326)
+# Define server logic
+server <- function(input, output, session) {
 
-  # Add Date version of character Date column.
-  rmdat = rmdat %>%
-    mutate(Date = as.Date(OBSERVATIO))
+  # Functions and whatnot from the /utils folder:
+  # 1. Make (javascript?) functions for loading screen for map.
+  source('utils/loading_screen_functions.R')
+  # 2. Read in data from /www folder.
+  source('utils/data_loader.R')$value
+  # 3. Function to make histogram of road mortality events by year.
+  source('utils/make_histogram_plot.R')
+  # 4. Function to start our leaflet map.
+  source('utils/initialize_leaflet_map.R')
+  # 5. Function to update leaflet map.
+  source('utils/update_leaflet_map.R')
+
+  # Choose zoom level at which to show parks / roads / culverts
+  # on leaflet map
+  zoom_reveal_factor = 8
+
+  # Put all 'container shapes' into a list; then
+  # the user can choose from this list.
+  container_shape_l = list(nr_regions,
+                           nr_districts,
+                           ecoprovs,
+                           ecosects,
+                           ecoregions) |>
+    set_names(c("nr_regions","nr_districts","ecoprovs","ecosects","ecoregions"))
 
   # Render UI elements that depend on columns from the dataset(s).
   # i.
-  species_vector = rmdat %>%
-    dplyr::select(SPECIES_EN) %>%
-    arrange(SPECIES_EN) %>%
-    distinct() %>%
-    pull(SPECIES_EN)
+  species_vector = unique(rmdat$common_name)
+  # species_vector = stringr::str_to_title(species_vector[order(species_vector)])
 
   # ii.
-  output$group_sel_UI = renderUI({
-    checkboxGroupInput(
-      inputId = 'group_selector',
-      label = 'Classes to Include',
-      inline = T,
-      choices = c("Amphibia",
-                  "Reptilia"),
-      selected = c("Amphibia","Reptilia")
-    )
-  })
-
-  # iii.
   output$spec_sel_UI = renderUI({
     if(input$want_species_sel_UI == F) return(NULL)
-    selectizeInput(
-      inputId = 'species_selector',
-      label = 'Species Selector',
+    shinyWidgets::pickerInput(
+      inputId = "species_selector",
+      label = "Species Selector",
       choices = species_vector,
-      multiple = F,
-      selected = species_vector
+      selected = species_vector,
+      options = list(
+        `selected-text-format` = "count > 3",
+        `actions-box` = TRUE),
+      multiple = TRUE
     )
   })
 
   # Render summary widgets
-  # i.
-  output$total_records = renderValueBox({
-    valueBox(value = nrow(rmdat_f()),
-             subtitle = 'Recorded Mortality Events',
-             width = 12,
-             color = 'success',
-             gradient = F)
+  # i. total number of road mortality events.
+  output$total_records = renderText({
+    nrow(rmdat_f())
   })
 
-  # ii.
-  output$number_dist_species = renderValueBox({
-    valueBox(value = length(unique(rmdat_f()$SPECIES_EN)),
-             subtitle = 'Distinct Species Killed',
-             width = 12,
-             color ='warning')
+  # ii. number of unique species with road mortality events.
+  output$number_dist_species = renderText({
+    length(unique(rmdat_f()$common_name))
   })
 
   # iii. Histogram of # records by year
-  output$data_time_hist = renderPlot({
-    dat_histogram = rmdat_f() %>%
-      ggplot() +
-      geom_histogram(aes(OBSERVAT_1),
-                     fill = 'white') +
-      labs(y = 'Number of Records',
-           x = 'Year',
-           title = 'Data Distribution By Year') +
-      scale_y_continuous(breaks = scales::breaks_pretty()) +
-      theme_dark() +
-      theme(
-        title = element_text(colour = 'white', size = 15),
-        axis.text = element_text(colour = 'white',size = 13),
-        plot.background = element_rect(fill = 'black'),
-        panel.background = element_rect(fill = 'black'))
-
-    dat_histogram
-    # ggplotly(dat_histogram)
-  })
+  output$data_time_hist = make_histogram_plot(dat = rmdat_f())
 
   # Select which shapes (e.g. regions/districts) to map
-
   map_shapes = reactive({
-    switch(input$choose_spatial_containers,
-           `Natural Resource Regions` = nr_regions,
-           `Natural Resource Districts` = nr_districts,
-           `Ecoprovinces` = ecoprovs,
-           `Ecoregions` = ecoregions,
-           `Ecosections` = nr_regions
-           )
-    # if(input$choose_spatial_containers == 'Natural Resource Regions'){
-    #   return(nr_regions)
-    # }
-    # if(input$choose_spatial_containers == 'Natural Resource Districts'){
-    #   return(nr_districts)
-    # }
-    # if(input$choose_spatial_containers == 'Ecoprovinces'){
-    #   return(ecoprovs)
-    # }
-    # if(input$choose_spatial_containers == 'Ecoregions'){
-    #   return(ecoregions)
-    # }
-    # if(input$choose_spatial_containers == 'Ecosections'){
-    #   return(ecosects)
-    # }
+    container_shape_l[[input$choose_spatial_containers]]
   })
 
-  # Add functionality to select data points by regions/districts. Either dropdown or click area on map.
-
-  # Set up a reactive value that stores a district's name upon user's click
-  click_shape <- reactiveVal('Province')
-
-  # Watch for a click on the leaflet map. Once clicked...
-
-  # 1. Update Leaflet map.
-  observeEvent(input$mortmap_shape_click, {
-    # Capture the info of the clicked polygon. We use this for filtering.
-    click_shape(input$mortmap_shape_click$id)
-    # Toggle the sidebar to be closed. Note: this skips the actual input$leaflet_sidebar variable.
-    # addClass(selector = "body", class = "sidebar-collapse")
-    # session$sendCustomMessage("leaflet_sidebar", 'FALSE')
-    # manual_sidebar_tracker('closed')
-  })
-
-
-  observeEvent(input$reset_sel_button, {
-    click_shape('Province')
-  })
-
-  # If the spatial divisions are changed after
-  # a shape has been clicked, revert click_shape()
-  # to 'Province'
-  observeEvent(input$choose_spatial_containers, {
-    click_shape('Province')
-  })
+  # Test - add jitter to rmdat #
+  rmdat = sf::st_jitter(rmdat, factor = 0.0001)
 
   # Reactive version of dataset.
-
   rmdat_f = reactive({
-    req(map_shapes(), click_shape())
-    dat_intermediate = rmdat %>%
-      filter(CLASS_NAME %in% input$group_selector)
+    req(input$var_to_color)
 
-    # Spatial match with whatever Province shapes user has chosen.
-    dat_intermediate = dat_intermediate %>%
-      st_join(map_shapes(), st_intersects)
+    dat_intermediate = rmdat
+
+    # # Spatial match with whatever Province shapes user has chosen.
+    # dat_intermediate = dat_intermediate %>%
+    #   st_join(st_transform(map_shapes(), 4326), st_intersects)
+
+    # Filter by data source.
+    dat_intermediate = dat_intermediate |>
+      filter(data_source %in% input$source_filter)
 
     if(input$want_species_sel_UI){
       dat_intermediate = dat_intermediate %>%
-        filter(SPECIES_EN %in% input$species_selector)
+        filter(common_name %in% input$species_selector)
     }
-    if(click_shape() != "Province"){
-      dat_intermediate = dat_intermediate %>%
-        filter(shape_name %in% click_shape())
+
+    if(input$var_to_color == 'dat_s'){
+
+      dat_intermediate = dat_intermediate |>
+        mutate(color_col = data_source)
+      # unique_colours = sample(grDevices::colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)], length(unique(rmdat$data_source)))
+      #
+      # dat_intermediate = dat_intermediate |>
+      #   mutate(col_for_leaf = case_when(
+      #     data_source == unique(rmdat$data_source)[1] ~ unique_colours[1],
+      #     data_source == unique(rmdat$data_source)[2] ~ unique_colours[2],
+      #     data_source == unique(rmdat$data_source)[3] ~ unique_colours[3],
+      #     data_source == unique(rmdat$data_source)[4] ~ unique_colours[4]
+      #   ))
     }
+    if(input$var_to_color == 'species'){
+
+    #   unique_sp = unique(rmdat$common_name)[order(unique(rmdat$common_name))]
+    #   unique_sp = unique_sp[!is.na(unique_sp)]
+    #
+    #   unique_colours = sample(grDevices::colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)], length(unique_sp))
+    #
+    #   sp_col_tbl = tibble(
+    #     common_name = unique_sp,
+    #     col_for_leaf = unique_colours
+    #   )
+    #
+    #   dat_intermediate = dat_intermediate |>
+      #     left_join(sp_col_tbl)
+
+      dat_intermediate = dat_intermediate |>
+        mutate(color_col = common_name)
+    }
+
+    # dat_intermediate = sf::st_jitter(dat_intermediate)
+
     return(dat_intermediate)
   })
 
-  # Filtered version of roads.
-  roads_in_100m_f = reactive({
-    roads_in_100m %>%
-      st_join(map_shapes(), st_intersects) %>%
-      filter(shape_name %in% click_shape())
+  output$dat_dt = DT::renderDT({
+    rmdat_f() |>
+      dplyr::select(incidental, species_code, common_name, scientific_name,date_time,data_source)
   })
 
-  # Filtered version of parks
-  parks_f = reactive({
-    parks %>%
-      st_join(map_shapes(), st_intersects) %>%
-      filter(shape_name %in% click_shape())
-  })
-
-  # Filtering shape, for highlight in leaflet.
-  selected_shape = reactive({
-    if(click_shape() == 'Province'){return(
-      # No selection? Just make a fake polygon placeholder
-      # so leaflet can still render
-      st_as_sf(data.frame(lat = c(49,49.1,49),
-                          lon = c(-130,-130.1,-130.2)),
-               coords = c("lon","lat"), crs = 4326) %>%
-        summarise(geometry = st_combine(geometry)) %>%
-        st_cast("POLYGON") %>%
-        mutate(highlightcolour = 'transparent',
-               shape_name = "")
-    )
+  my_pal = reactive({
+    if(input$var_to_color == 'dat_s'){
+      the_pal = leaflet::colorFactor(palette = 'Spectral',
+                                     domain = unique(rmdat$data_source))
+    } else {
+      the_pal = leaflet::colorFactor(palette = 'Spectral',
+                                     domain = unique(rmdat$common_name))
     }
-    if(click_shape() != 'Province'){
-      return(map_shapes() %>%
-               filter(shape_name %in% click_shape()) %>%
-               mutate(highlightcolour = 'yellow')
-      )
-    }
+    the_pal
   })
-
-  # Using selected shape to query roads from road atlas... experimental. Might take too long.
 
   # Make leaflet
-  output$mortmap = renderLeaflet({
-    leaflet() %>%
-      addTiles(group = 'Streets') %>%
-      addProviderTiles(providers$Stamen.Terrain, group = "Terrain") %>%
-      addProviderTiles(providers$CartoDB,  group = "CartoDB") %>%
-      envreportutils::add_bc_home_button() %>%
-      envreportutils::set_bc_view(zoom = 5) %>%
-      addLayersControl(baseGroups = c("CartoDB","Streets","Terrain"),
-                       overlayGroups = c("MapShapes","Roads","Parks"),
-                       options = layersControlOptions(collapsed = F),
-                       position = 'bottomright')
-    # leaflet::hideGroup(group = 'Parks')
-  })
-
-  mypal = colorFactor(palette = 'Set2',
-                      domain = rmdat$CLASS_NAME)
-
-  output$shape_selected = renderText({
-    paste0("Currently selected: ",click_shape())
-  })
+  output$mortmap = initialize_leaflet_map()
 
   observe({
-    leafletProxy("mortmap") %>%
-      removeControl("legend") %>%
-      # leaflet::removeShape(layerId = 'shapes') %>%
-      # leaflet::removeMarker(layerId = 'markers_test') %>%
-      leaflet::clearShapes() %>%
-      leaflet::clearMarkers() %>%
-      addPolygons(
-        data = selected_shape(),
-        label = ~shape_name,
-        layerId = ~highlightcolour,
-        color = ~highlightcolour,
-        weight = 3,
-        group = 'test') %>%
-      addPolygons(
-        data = map_shapes(),
-        layerId = ~shape_name,
-        label = ~shape_name,
-        color = 'grey',
-        weight = 2,
-        group = 'MapShapes') %>%
-      addPolygons(label = ~paste0(park_name,", (",park_type,")"),
-                  weight = 1,
-                  color = 'black',
-                  fillColor = 'darkgreen',
-                  group = 'Parks',
-                  data = parks_f()
-      ) %>%
-      leaflet::addCircleMarkers(
-        color = ~mypal(CLASS_NAME),
-        radius = 3,
-        weight = 10,
-        opacity = 0.8,
-        label = ~paste0(SPECIES_EN, " (",SCIENTIFIC,",",Date,"): ",SIGN_OR__1,", ",OBSERVAT_5),
-        # layerId = 'markers_test',
-        data = rmdat_f()) %>%
-      addPolylines(
-        color = 'orange',
-        weight = 5,
-        label = ~paste0('Mortality event ',related_mortality,', ',road_surface,' ',road_class),
-        # layerId = 'roads',
-        group = 'Roads',
-        data = roads_in_100m_f()) %>%
-      addLegend(pal = mypal,
-                values = ~CLASS_NAME,
-                title = 'LEGEND',
-                data = rmdat_f(),
-                layerId = 'legend')
+
+    # # Need to collapse data file
+    # mutate(species_mort_alive = paste0(species,", mort: ",mort_number,", alive: ",alive_number, collapse = '; ')) |>
+    #   dplyr::select(-species,-mort_number,-alive_number)
+
+    update_leaflet_map('mortmap',
+                       map_shapes(),
+                       # input$var_to_color,
+                       my_pal(),
+                       rmdat_f())
   })
 }
 
-## Look for just paved (gravel too?) roads within whichever shape has been clicked.
-## Priorities are: paved 4 lane, paved 2 lane, then gravel.
-
-## Add in mortality events from the layers that Sultana queried.
-
-# Run the application
 shinyApp(ui = ui, server = server)
