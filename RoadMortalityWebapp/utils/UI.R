@@ -47,6 +47,22 @@ ui <- page_sidebar(
                   label = "Filter by Species?",
                   value = F),
     uiOutput('spec_sel_UI'),
+    shinyWidgets::pickerInput(
+      inputId = "source_filter",
+      label = "Data Sources to include",
+      choices = c("Leigh-Anne",
+                  "Herp 2022 Sheet" = 'Herpetofauna_Road_Mortality_ExcelSheet_2022',
+                  "BC Data Catalogue - SPI",
+                  "iNaturalist"),
+      selected = c("Leigh-Anne",
+                   "Herp 2022 Sheet" = 'Herpetofauna_Road_Mortality_ExcelSheet_2022',
+                   "BC Data Catalogue - SPI",
+                   "iNaturalist"),
+      options = list(
+        `selected-text-format` = "count > 2",
+        `actions-box` = TRUE),
+      multiple = TRUE
+    ),
     selectizeInput(
       inputId = 'choose_spatial_containers',
       label = 'Select Spatial Divisions',
@@ -57,6 +73,10 @@ ui <- page_sidebar(
                   'Ecosections' = 'ecosects'),
       selected = 'nr_regions'
     ),
+    selectizeInput('var_to_color',
+                   "Color Points by:",
+                   choices = c("Data Source" = 'dat_s',
+                               "Species" = 'species')),
     card(
       layout_column_wrap(
         1/2,
@@ -85,9 +105,10 @@ ui <- page_sidebar(
     tags$div(
       id = "leafletBusy",
       class = "map-loading",
-      tags$p("Loading map... please wait a few seconds",
-             style = 'margin-top:5rem;')
+      tags$p("Loading map... please wait around 20 seconds",
+             style = 'margin-top:8rem;')
     ),
-    leafletOutput("mortmap", height = '600px')
+      leafletOutput("mortmap", height = '500px'),
+      DT::DTOutput('dat_dt', height = '200px')
   )
 )

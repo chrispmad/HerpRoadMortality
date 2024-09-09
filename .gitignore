@@ -12,3 +12,4 @@ RoadMortalityWebapp/rsconnect
 *.html
 output/*
 tasks/*
+*.docx
